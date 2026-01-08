@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multiplayer RPS</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; text-align: center; background: #1a1a1a; color: white; padding-top: 20px; }
+        .score-board { background: #333; padding: 15px; border-radius: 10px; display: inline-block; margin-bottom: 20px; }
+        .btn { padding: 20px; margin: 5px; font-size: 1.5rem; cursor: pointer; border: none; border-radius: 10px; background: #444; color: white; transition: 0.2s; }
+        .btn:active { transform: scale(0.9); background: #666; }
+        #result { font-size: 1.5rem; color: #ffcc00; margin: 20px; }
+        .hidden { display: none; }
+        #play-again { background: #28a745; font-size: 1rem; padding: 10px 20px; }
+    </style>
+</head>
+<body>
+    <h1>RPS Multiplayer</h1>
+    
+    <div class="score-board">
+        <span>You: <b id="myScore">0</b></span> | 
+        <span>Opponent: <b id="oppScore">0</b></span>
+    </div>
+
+    <p id="msg">Joining game...</p>
+
+    <div id="game-controls">
+        <button class="btn" onclick="send('rock')">✊</button>
+        <button class="btn" onclick="send('paper')">✋</button>
+        <button class="btn" onclick="send('scissors')">✌️</button>
+    </div>
+
+    <div id="result-area" class="hidden">
+        <h2 id="result"></h2>
+        <p id="choices-made"></p>
+        <button id="play-again" class="btn" onclick="resetUI()">Next Round</button>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const msg = document.getElementById('msg');
+        const resultArea = document.getElementById('result-area');
+        const gameControls = document.getElementById('game-controls');
+
+        function send(choice) {
+            socket.emit('makeChoice', choice);
+            gameControls.classList.add('hidden');
+            msg.innerText = "Waiting for opponent...";
+        }
+
+        socket.on('message', m => msg.innerText = m);
+
+        socket.on('gameResult', data => {
+            resultArea.classList.remove('hidden');
+            msg.classList.add('hidden');
+            
+            const isWinner = data.winner === socket.id;
+            const isDraw = data.winner === "draw";
+            
+            document.getElementById('result').innerText = isDraw ? "It's a Draw!" : (isWinner ? "You Win! 🎉" : "You Lost! 💀");
+            document.getElementById('choices-made').innerText = `You played ${data.p1Choice}, they played ${data.p2Choice}`;
+            
+            // Update Scores
+            const myId = socket.id;
+            const oppId = Object.keys(data.scores).find(id => id !== myId);
+            document.getElementById('myScore').innerText = data.scores[myId] || 0;
+            document.getElementById('oppScore').innerText = data.scores[oppId] || 0;
+        });
+
+        function resetUI() {
+            resultArea.classList.add('hidden');
+            gameControls.classList.remove('hidden');
+            msg.classList.remove('hidden');
+            msg.innerText = "Make your move!";
+        }
+        const express = require('express');
+        const http = require('http');
+        const { Server } = require('socket.io');
+        const path = require('path');
+        
+        const app = express();
+        const server = http.createServer(app);
+        const io = new Server(server);
+        
+        app.use(express.static(path.join(__dirname, 'public')));
+        
+        let players = {}; 
+        
+        io.on('connection', (socket) => {
+        // Assign Player 1 or Player 2 slots
+        if (Object.keys(players).length < 2) {
+        players[socket.id] = { id: socket.id, choice: null, wins: 0 };
+        socket.emit('message', "Connected! Waiting for opponent...");
+        } else {
+        socket.emit('message', "Server full.");
+        socket.disconnect();
+        }
+        
+        socket.on('makeChoice', (choice) => {
+        if (players[socket.id]) {
+        players[socket.id].choice = choice;
+        checkWinner();
+        }
+        });
+        
+        function checkWinner() {
+        const pIds = Object.keys(players);
+        if (pIds.length === 2 && players[pIds[0]].choice && players[pIds[1]].choice) {
+        const p1 = players[pIds[0]];
+        const p2 = players[pIds[1]];
+        let winnerId = null;
+        
+        if (p1.choice === p2.choice) {
+        winnerId = "draw";
+        } else if (
+        (p1.choice === 'rock' && p2.choice === 'scissors') ||
+        (p1.choice === 'paper' && p1.choice === 'rock') ||
+        (p1.choice === 'scissors' && p2.choice === 'paper')
+        ) {
+        winnerId = pIds[0];
+        p1.wins++;
+        } else {
+        winnerId = pIds[1];
+        p2.wins++;
+        }
+        
+        io.emit('gameResult', {
+        winner: winnerId,
+        p1Choice: p1.choice,
+        p2Choice: p2.choice,
+        scores: { [pIds[0]]: p1.wins, [pIds[1]]: p2.wins }
+        });
+        
+        // Reset choices for next round
+        p1.choice = null;
+        p2.choice = null;
+        }
+        }
+        
+        socket.on('disconnect', () => delete players[socket.id]);
+        });
+        
+        const PORT = process.env.PORT || 3000;
+        server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+        
+    </script>
+</body>
+</html>
