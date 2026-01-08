@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hand Cricket Multiplayer</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; background: #121212; color: white; }
+        .btn { padding: 20px; margin: 10px; font-size: 24px; border-radius: 10px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>Hand Cricket</h1>
+    <div id="status">Waiting for opponent...</div>
+    <h2 id="score">Score: 0</h2>
+    
+    <div id="controls">
+        <button class="btn" onclick="makeMove(1)">1</button>
+        <button class="btn" onclick="makeMove(2)">2</button>
+        <button class="btn" onclick="makeMove(3)">3</button><br>
+        <button class="btn" onclick="makeMove(4)">4</button>
+        <button class="btn" onclick="makeMove(5)">5</button>
+        <button class="btn" onclick="makeMove(6)">6</button>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        function makeMove(n) {
+            socket.emit('sendMove', n);
+            document.getElementById('status').innerText = "Move sent! Waiting...";
+        }
+
+        socket.on('gameUpdate', (data) => {
+            if(data.msg) alert(data.msg);
+            if(data.p1Score !== undefined) {
+                document.getElementById('score').innerText = "Score: " + data.p1Score;
+                document.getElementById('status').innerText = `You played ${data.p1Move}, Opponent played ${data.p2Move}`;
+            }
+        });
+    </script>
+</body>
+</html>
+<script type="text/javascript">const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
+
+let players = {}; // Stores player data
+
+io.on('connection', (socket) => {
+    console.log('User connected:', socket.id);
+    
+    // Simple matchmaking: First two to join are Player 1 and 2
+    if (Object.keys(players).length < 2) {
+        players[socket.id] = { id: socket.id, score: 0, move: null };
+    }
+
+    socket.on('sendMove', (num) => {
+        if (players[socket.id]) {
+            players[socket.id].move = num;
+            checkResult();
+        }
+    });
+
+    function checkResult() {
+        const ids = Object.keys(players);
+        if (ids.length === 2 && players[ids[0]].move && players[ids[1]].move) {
+            const p1 = players[ids[0]];
+            const p2 = players[ids[1]];
+
+            if (p1.move === p2.move) {
+                io.emit('gameUpdate', { msg: "OUT!", reset: true });
+                p1.score = 0; p2.score = 0;
+            } else {
+                p1.score += p1.move;
+                io.emit('gameUpdate', { p1Score: p1.score, p1Move: p1.move, p2Move: p2.move });
+            }
+            // Reset moves for next turn
+            p1.move = null; p2.move = null;
+        }
+    }
+
+    socket.on('disconnect', () => delete players[socket.id]);
+});
+
+server.listen(3000, () => console.log('Server running on port 3000'));
+</script>
